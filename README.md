@@ -2,4 +2,4 @@
 
 
 from 
-https://github.com/Viren070/stremio-gdrive-addon
+[Viren070/stremio-gdrive-addon](https://github.com/Viren070/stremio-gdrive-addon)
