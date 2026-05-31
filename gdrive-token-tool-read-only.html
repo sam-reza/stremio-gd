@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GDrive Token Tool</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:#0f0f0f;color:#e0e0e0;font-family:monospace;font-size:13px;display:flex;justify-content:center;padding:48px 16px;}
+  .box{width:100%;max-width:520px;}
+  h2{font-size:15px;color:#fff;margin-bottom:4px;}
+  .sub{color:#555;font-size:11px;margin-bottom:32px;}
+  label{display:block;color:#666;font-size:10px;letter-spacing:1px;text-transform:uppercase;margin-bottom:5px;}
+  input{width:100%;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:3px;color:#e0e0e0;font-family:monospace;font-size:12px;padding:9px 10px;outline:none;margin-bottom:16px;}
+  input:focus{border-color:#555;}
+  .row{display:flex;gap:8px;margin-bottom:24px;}
+  button{background:#1a1a1a;border:1px solid #333;color:#e0e0e0;font-family:monospace;font-size:12px;padding:9px 16px;border-radius:3px;cursor:pointer;transition:background .1s;}
+  button:hover{background:#252525;}
+  button.primary{background:#fff;color:#000;border-color:#fff;font-weight:700;}
+  button.primary:hover{background:#e0e0e0;}
+  .result{display:none;margin-top:8px;}
+  .result-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
+  .result-label{color:#666;font-size:10px;letter-spacing:1px;text-transform:uppercase;}
+  .copy-btn{background:none;border:1px solid #333;color:#666;font-family:monospace;font-size:10px;padding:3px 8px;border-radius:3px;cursor:pointer;transition:all .1s;}
+  .copy-btn:hover{border-color:#555;color:#e0e0e0;}
+  .copy-btn.copied{border-color:#4dff91;color:#4dff91;}
+  .token{background:#1a1a1a;border:1px solid #2a2a2a;border-radius:3px;padding:10px;color:#4dff91;font-size:11px;word-break:break-all;line-height:1.6;}
+  .err{display:none;margin-top:8px;color:#ff5555;font-size:11px;line-height:1.6;}
+  .hint{color:#444;font-size:10px;margin-top:-12px;margin-bottom:16px;line-height:1.5;}
+</style>
+</head>
+<body>
+<div class="box">
+  <h2>GDrive Token Tool</h2>
+  <div class="sub">Stremio · Cloudflare Worker setup</div>
+
+  <label>Client ID</label>
+  <input id="cid" type="text" placeholder="xxxx.apps.googleusercontent.com">
+
+  <label>Client Secret</label>
+  <input id="cs" type="password" placeholder="GOCSPX-...">
+
+  <div class="row">
+    <button onclick="openAuth()">↗ Open Google Auth</button>
+  </div>
+
+  <label>Paste redirect URL from browser</label>
+  <input id="url" type="text" placeholder="http://localhost/?code=4/0AQSTg…">
+  <div class="hint">After authorizing, browser shows blank/error page — paste the full URL from address bar here.</div>
+
+  <div class="row">
+    <button class="primary" onclick="getToken()">Get Refresh Token</button>
+  </div>
+
+  <div class="err" id="err"></div>
+
+  <div class="result" id="result">
+    <div class="result-header">
+      <div class="result-label">Refresh Token</div>
+      <button class="copy-btn" id="copy-btn" onclick="copyToken()">Copy</button>
+    </div>
+    <div class="token" id="token"></div>
+  </div>
+</div>
+
+<script>
+function openAuth() {
+  const cid = document.getElementById('cid').value.trim();
+  if (!cid) { showErr('Enter Client ID first.'); return; }
+  const url = 'https://accounts.google.com/o/oauth2/auth'
+    + '?client_id=' + encodeURIComponent(cid)
+    + '&redirect_uri=http%3A%2F%2Flocalhost'
+    + '&response_type=code&access_type=offline'
+    + '&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.readonly'
+    + '&prompt=consent';
+  window.open(url, '_blank');
+}
+
+async function getToken() {
+  const cid = document.getElementById('cid').value.trim();
+  const cs  = document.getElementById('cs').value.trim();
+  const raw = document.getElementById('url').value.trim();
+  document.getElementById('err').style.display = 'none';
+  document.getElementById('result').style.display = 'none';
+
+  if (!cid || !cs || !raw) { showErr('Fill in all three fields first.'); return; }
+
+  let code = raw;
+  if (raw.startsWith('http')) {
+    try { code = new URL(raw).searchParams.get('code') || raw; } catch(_) {}
+  }
+  code = code.split('#')[0].trim();
+
+  try {
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ code, client_id: cid, client_secret: cs, redirect_uri: 'http://localhost', grant_type: 'authorization_code' })
+    });
+    const d = await res.json();
+    if (d.error) { showErr(d.error_description || d.error); return; }
+    if (!d.refresh_token) { showErr('No refresh_token returned. Each code works once — click "Open Google Auth" again for a fresh code.'); return; }
+    document.getElementById('token').textContent = d.refresh_token;
+    document.getElementById('result').style.display = 'block';
+  } catch(e) {
+    showErr('Network error: ' + e.message);
+  }
+}
+
+function copyToken() {
+  const token = document.getElementById('token').textContent;
+  navigator.clipboard.writeText(token).then(() => {
+    const btn = document.getElementById('copy-btn');
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+  }).catch(() => {
+    showErr('Copy failed — select and copy the token manually.');
+  });
+}
+
+function showErr(msg) {
+  const el = document.getElementById('err');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+</script>
+</body>
+</html>
